@@ -5,7 +5,7 @@ import requests
 import shutil
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, HttpUrl, Field
 
@@ -14,8 +14,12 @@ from pydantic import BaseModel, HttpUrl, Field
 OUTPUT_DIR = Path("outputs")
 OUTPUT_DIR.mkdir(exist_ok=True)
 
-TEMP_DIR = Path("temp_inputs")  # New folder for downloading inputs
+TEMP_DIR = Path("temp_inputs")
 TEMP_DIR.mkdir(exist_ok=True)
+
+# Replace this with your actual Lightning AI Public URL (Found in the browser address bar)
+# Example: "https://8000-01kfnezv96p74g8kjjejgqqc0g.cloudspaces.litng.ai"
+WORKER_PUBLIC_URL = os.environ.get("LIGHTNING_APP_URL", "http://localhost:8000")
 
 # ---------------------------------------
 
@@ -28,19 +32,18 @@ app.mount("/outputs", StaticFiles(directory=OUTPUT_DIR), name="outputs")
 class LipSyncRequest(BaseModel):
     video_url: HttpUrl
     audio_url: HttpUrl
+    webhook_url: HttpUrl     # <--- NEW: Where to send the result
+    main_job_id: str         # <--- NEW: ID from your main server
     guidance_scale: float = Field(1.5, ge=0.1, le=5.0)
     inference_steps: int = Field(25, ge=10, le=60)
-
-class LipSyncResponse(BaseModel):
-    job_id: str
-    video_url: str
 
 # ---------------- UTILS ----------------
 
 def download_file(url: str, save_path: Path):
     """Helper to download files from URLs to local disk"""
     try:
-        with requests.get(url, stream=True) as r:
+        # Added timeout to prevent hanging forever
+        with requests.get(url, stream=True, timeout=120) as r:
             r.raise_for_status()
             with open(save_path, 'wb') as f:
                 for chunk in r.iter_content(chunk_size=8192):
@@ -57,54 +60,44 @@ def run_lipsync(local_video_path, local_audio_path, output_path, steps, scale):
         "--inference_ckpt_path", "checkpoints/latentsync_unet.pt",
         "--inference_steps", str(steps),
         "--guidance_scale", str(scale),
-        "--video_path", str(local_video_path),     # <-- NOW USING LOCAL PATH
-        "--audio_path", str(local_audio_path),     # <-- NOW USING LOCAL PATH
+        "--video_path", str(local_video_path),
+        "--audio_path", str(local_audio_path),
         "--video_out_path", str(output_path)
     ]
 
-    print(f"Running command: {' '.join(cmd)}") # Debug print
+    print(f"🚀 Running command: {' '.join(cmd)}")
 
+    # We remove PIPE so you can see the progress bar in the Lightning Terminal
     process = subprocess.run(
         cmd,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        stdout=None, 
+        stderr=None,
         text=True
     )
     
-    # Print logs to terminal for debugging
-    print("STDOUT:", process.stdout)
-    
     if process.returncode != 0:
-        print("STDERR:", process.stderr) # This will show you the exact error
-        raise RuntimeError(f"Inference Failed: {process.stderr}")
+        raise RuntimeError(f"Inference Script Failed with code {process.returncode}")
 
-# ---------------- ROUTES ----------------
+# ---------------- BACKGROUND WORKER ----------------
 
-@app.get('/')
-def root():
-    return {"msg": "LatentSync API is Running"}
-
-@app.get("/health")
-def health():
-    return {"status": "ok"}
-
-@app.post("/generate", response_model=LipSyncResponse)
-def generate(req: LipSyncRequest):
-    job_id = str(uuid.uuid4())
+def process_job(req: LipSyncRequest):
+    """This runs in the background AFTER the API responds."""
+    job_id = req.main_job_id
+    print(f"[{job_id}] Processing Started...")
     
-    # 1. Define paths for temporary storage
+    # Define paths
     local_video_path = TEMP_DIR / f"{job_id}_video.mp4"
     local_audio_path = TEMP_DIR / f"{job_id}_audio.wav"
     final_output_path = OUTPUT_DIR / f"{job_id}.mp4"
 
     try:
-        print(f"Downloading inputs for Job {job_id}...")
-        # 2. DOWNLOAD the files from the URLs
+        # 1. Download Inputs
+        print(f"[{job_id}] Downloading files...")
         download_file(str(req.video_url), local_video_path)
         download_file(str(req.audio_url), local_audio_path)
 
-        # 3. Run Inference using the LOCAL files
-        print(f"Starting Inference for Job {job_id}...")
+        # 2. Run Inference
+        print(f"[{job_id}] Running Inference...")
         run_lipsync(
             local_video_path,
             local_audio_path,
@@ -113,18 +106,58 @@ def generate(req: LipSyncRequest):
             req.guidance_scale
         )
 
-        return {
+        # 3. Construct Public URL
+        # IMPORTANT: Ensure WORKER_PUBLIC_URL is set correctly at the top
+        generated_url = f"{WORKER_PUBLIC_URL}/outputs/{job_id}.mp4"
+        print(f"[{job_id}] Success! Video at: {generated_url}")
+
+        # 4. Send Success Webhook
+        print(f"[{job_id}] Sending Webhook to {req.webhook_url}...")
+        requests.post(str(req.webhook_url), json={
             "job_id": job_id,
-            "video_url": f"/outputs/{job_id}.mp4"
-        }
+            "status": "completed",
+            "generated_video_url": generated_url
+        })
 
     except Exception as e:
-        print(f"Job Failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-    
+        print(f"[{job_id}] FAILED: {str(e)}")
+        
+        # 5. Send Failure Webhook
+        try:
+            requests.post(str(req.webhook_url), json={
+                "job_id": job_id,
+                "status": "failed",
+                "error": str(e)
+            })
+        except:
+            print(f"[{job_id}] Could not send failure webhook.")
+
     finally:
-        # 4. Cleanup temp input files to save space
-        if local_video_path.exists():
-            os.remove(local_video_path)
-        if local_audio_path.exists():
-            os.remove(local_audio_path)
+        # 6. Cleanup Temp Files
+        if local_video_path.exists(): os.remove(local_video_path)
+        if local_audio_path.exists(): os.remove(local_audio_path)
+        print(f"[{job_id}] Cleanup Complete.")
+
+# ---------------- ROUTES ----------------
+
+@app.get('/')
+def root():
+    return {"msg": "LatentSync Worker is Running"}
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+
+@app.post("/generate")
+async def generate(req: LipSyncRequest, background_tasks: BackgroundTasks):
+    """
+    Receives request, queues it, and returns IMMEDIATELY.
+    """
+    # Add the processing function to the background queue
+    background_tasks.add_task(process_job, req)
+    
+    return {
+        "status": "queued",
+        "message": "Job accepted. Processing in background.",
+        "job_id": req.main_job_id
+    }

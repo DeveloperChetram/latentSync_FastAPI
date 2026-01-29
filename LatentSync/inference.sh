@@ -32,7 +32,7 @@ export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 python -m scripts.inference \
     --unet_config_path "configs/unet/stage2_512.yaml" \
     --inference_ckpt_path "checkpoints/latentsync_unet.pt" \
-    --inference_steps 50 \
+    --inference_steps 10 \
     --guidance_scale 1.6 \
     --video_path "assets/girl2.mp4" \
     --audio_path "assets/girl_audio.mp3" \

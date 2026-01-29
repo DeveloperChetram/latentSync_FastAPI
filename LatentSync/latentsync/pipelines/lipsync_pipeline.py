@@ -483,6 +483,18 @@ class LipsyncPipeline(DiffusionPipeline):
      # 1. Define the command (The text)
 # Bulletproof Software Command: MPEG4 at Max Quality (q:v 1)
         # This works on ALL systems (CPU/GPU, Linux/Windows) without crashing.
-        command = f"ffmpeg -y -loglevel error -nostdin -i {os.path.join(temp_dir, 'video.mp4')} -i {os.path.join(temp_dir, 'audio.wav')} -c:v mpeg4 -q:v 1 -c:a aac {video_out_path}"
+        # command = f"ffmpeg -y -loglevel error -nostdin -i {os.path.join(temp_dir, 'video.mp4')} -i {os.path.join(temp_dir, 'audio.wav')} -c:v mpeg4 -q:v 1 -c:a aac {video_out_path}"
         
+        # subprocess.run(command, shell=True)
+
+# ---------------------------------------------------------
+        # FASTEST CPU COMMAND (Replaces the slow mpeg4 command)
+        # ---------------------------------------------------------
+        # -c:v libx264      : Uses the standard H.264 software encoder (reliable)
+        # -preset ultrafast : Prioritizes SPEED above all else (great for previews)
+        # -crf 28           : Slightly lower quality to speed up encoding (standard is 23)
+        # ---------------------------------------------------------
+        command = f"ffmpeg -y -loglevel error -nostdin -i {os.path.join(temp_dir, 'video.mp4')} -i {os.path.join(temp_dir, 'audio.wav')} -c:v mpeg4 -q:v 4 -c:a aac {video_out_path}"
+        
+        print(f"⚡ Running stitching command: {command}")
         subprocess.run(command, shell=True)
