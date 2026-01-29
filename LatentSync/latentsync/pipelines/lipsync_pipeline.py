@@ -479,5 +479,10 @@ class LipsyncPipeline(DiffusionPipeline):
         # command = f"ffmpeg -y -loglevel error -nostdin -i {os.path.join(temp_dir, 'video.mp4')} -i {os.path.join(temp_dir, 'audio.wav')} -c:v mpeg4 -q:v 5 -c:a aac {video_out_path}"
         # _______________________________________________________________________
 # Use NVIDIA Hardware Encoder with 15Mbps Bitrate (High Quality, Universally Supported)
-        command = f"ffmpeg -y -loglevel error -nostdin -i {os.path.join(temp_dir, 'video.mp4')} -i {os.path.join(temp_dir, 'audio.wav')} -c:v h264_nvenc -pix_fmt yuv420p -b:v 15M -preset slow -c:a aac {video_out_path}"
+# Safe High-Quality NVENC Command (No Presets, High Bitrate)
+     # 1. Define the command (The text)
+# Bulletproof Software Command: MPEG4 at Max Quality (q:v 1)
+        # This works on ALL systems (CPU/GPU, Linux/Windows) without crashing.
+        command = f"ffmpeg -y -loglevel error -nostdin -i {os.path.join(temp_dir, 'video.mp4')} -i {os.path.join(temp_dir, 'audio.wav')} -c:v mpeg4 -q:v 1 -c:a aac {video_out_path}"
+        
         subprocess.run(command, shell=True)
