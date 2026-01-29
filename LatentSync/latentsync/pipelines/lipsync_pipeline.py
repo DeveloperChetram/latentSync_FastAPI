@@ -494,7 +494,31 @@ class LipsyncPipeline(DiffusionPipeline):
         # -preset ultrafast : Prioritizes SPEED above all else (great for previews)
         # -crf 28           : Slightly lower quality to speed up encoding (standard is 23)
         # ---------------------------------------------------------
-        command = f"ffmpeg -y -loglevel error -nostdin -i {os.path.join(temp_dir, 'video.mp4')} -i {os.path.join(temp_dir, 'audio.wav')} -c:v mpeg4 -q:v 4 -c:a aac {video_out_path}"
+        # command = f"ffmpeg -y -loglevel error -nostdin -i {os.path.join(temp_dir, 'video.mp4')} -i {os.path.join(temp_dir, 'audio.wav')} -c:v mpeg4 -q:v 4 -c:a aac {video_out_path}"
+        
+        # print(f"⚡ Running stitching command: {command}")
+        # subprocess.run(command, shell=True)
+      # ---------------------------------------------------------
+        # FINAL PRODUCTION FIX (Line ~501)
+        # ---------------------------------------------------------
+        # 1. Define path to the binary we just moved
+        ffmpeg_path = "./ffmpeg_static" 
+        
+        # 2. Check if it exists. If not, fallback to system default (Safety net)
+        if not os.path.exists(ffmpeg_path):
+            print(f"⚠️ Warning: '{ffmpeg_path}' not found. Using system default.")
+            ffmpeg_path = "ffmpeg"
+
+        # 3. The Web-Compatible Command
+        # -c:v libx264      : Now supported by our static binary!
+        # -pix_fmt yuv420p  : Makes it playable on all devices.
+        # -preset fast      : Good speed/quality balance.
+        # ---------------------------------------------------------
+        command = f"{ffmpeg_path} -y -loglevel error -nostdin -i {os.path.join(temp_dir, 'video.mp4')} -i {os.path.join(temp_dir, 'audio.wav')} -c:v libx264 -pix_fmt yuv420p -preset fast -c:a aac {video_out_path}"
         
         print(f"⚡ Running stitching command: {command}")
-        subprocess.run(command, shell=True)
+        
+        result = subprocess.run(command, shell=True)
+        
+        if result.returncode != 0:
+             raise RuntimeError(f"FFmpeg failed with code {result.returncode}. Check permissions on ./ffmpeg_static")

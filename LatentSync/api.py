@@ -19,7 +19,7 @@ TEMP_DIR.mkdir(exist_ok=True)
 
 # Replace this with your actual Lightning AI Public URL (Found in the browser address bar)
 # Example: "https://8000-01kfnezv96p74g8kjjejgqqc0g.cloudspaces.litng.ai"
-WORKER_PUBLIC_URL = os.environ.get("LIGHTNING_APP_URL", "http://localhost:8000")
+WORKER_PUBLIC_URL = 'https://8000-01kfnezv96p74g8kjjejgqqc0g.cloudspaces.litng.ai'
 
 # ---------------------------------------
 
