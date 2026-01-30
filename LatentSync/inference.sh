@@ -34,6 +34,6 @@ python -m scripts.inference \
     --inference_ckpt_path "checkpoints/latentsync_unet.pt" \
     --inference_steps 10 \
     --guidance_scale 1.6 \
-    --video_path "assets/girl2.mp4" \
-    --audio_path "assets/girl_audio.mp3" \
+    --video_path "assets/girlshort.mp4" \
+    --audio_path "assets/short_audio.mp3" \
     --video_out_path "new_high_vid.mp4"
